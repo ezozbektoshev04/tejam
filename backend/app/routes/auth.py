@@ -1,17 +1,15 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models import User
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 import bcrypt
 
 auth_bp = Blueprint('auth', __name__)
 
-# ── Register ──────────────────────────────────────────
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
 
-    # Validation
     required = ['name', 'email', 'password', 'role']
     for field in required:
         if not data.get(field):
@@ -26,7 +24,6 @@ def register():
     if len(data['password']) < 6:
         return jsonify({'error': 'Password must be at least 6 characters'}), 400
 
-    # Hash password
     hashed = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt())
 
     user = User(
@@ -38,7 +35,10 @@ def register():
     db.session.add(user)
     db.session.commit()
 
-    token = create_access_token(identity={'id': user.id, 'role': user.role})
+    token = create_access_token(
+        identity=str(user.id),
+        additional_claims={'role': user.role}
+    )
 
     return jsonify({
         'message': 'Registration successful',
@@ -47,7 +47,6 @@ def register():
     }), 201
 
 
-# ── Login ─────────────────────────────────────────────
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -60,7 +59,10 @@ def login():
     if not user or not bcrypt.checkpw(data['password'].encode('utf-8'), user.password.encode('utf-8')):
         return jsonify({'error': 'Invalid email or password'}), 401
 
-    token = create_access_token(identity={'id': user.id, 'role': user.role})
+    token = create_access_token(
+        identity=str(user.id),
+        additional_claims={'role': user.role}
+    )
 
     return jsonify({
         'message': 'Login successful',
@@ -69,12 +71,11 @@ def login():
     }), 200
 
 
-# ── Get current user ──────────────────────────────────
 @auth_bp.route('/me', methods=['GET'])
 @jwt_required()
 def me():
     identity = get_jwt_identity()
-    user = User.query.get(identity['id'])
+    user = User.query.get(int(identity))
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
@@ -87,7 +88,6 @@ def me():
     }), 200
 
 
-# ── Change password ───────────────────────────────────
 @auth_bp.route('/change-password', methods=['PUT'])
 @jwt_required()
 def change_password():
@@ -97,7 +97,7 @@ def change_password():
     if not data.get('old_password') or not data.get('new_password'):
         return jsonify({'error': 'Both old and new password are required'}), 400
 
-    user = User.query.get(identity['id'])
+    user = User.query.get(int(identity))
 
     if not bcrypt.checkpw(data['old_password'].encode('utf-8'), user.password.encode('utf-8')):
         return jsonify({'error': 'Old password is incorrect'}), 401
